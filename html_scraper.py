@@ -10,13 +10,16 @@ from selenium.webdriver.chrome.options import Options
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 import sys
-
+#regex for matchin email patterns
 EMAIL_REGEX = r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"
+
+# valid email domain suffixes and filers out junk 
 VALID_EMAIL_TLDS = (
     ".com", ".org", ".net", ".edu", ".gov", ".io", ".tech", ".co", ".us", ".info",
     ".biz", ".me", ".ai", ".dev", ".online", ".app", ".club", ".uk"
 )
 
+#shared state
 visited_lock = Lock()
 emails_lock = Lock()
 visited = set()
@@ -24,6 +27,7 @@ found_emails = set()
 robot_parser = None
 USER_AGENT = "MyEmailScraperBot"
 
+# loads and parses the robots.txt rules
 def setup_robot_parser(base_url):
     parsed = urlparse(base_url)
     robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
@@ -42,17 +46,17 @@ def setup_robot_parser(base_url):
         print(f"[!] Could not load robots.txt: {e}")
         return None
 
-
+# check if is allowed by robots.txt
 def is_allowed(url):
     if not robot_parser:
         # If no robots.txt, be cautious and allow
         return True
 
     return robot_parser.can_fetch(USER_AGENT, url)
-
+# check if xml
 def is_xml(content):
     return content.strip().startswith('<?xml')
-
+# extracts urls from xml
 def extract_urls_from_xml(content):
     soup = BeautifulSoup(content, "xml")
     urls = []
@@ -72,7 +76,7 @@ def extract_urls_from_xml(content):
             urls.append(loc.text.strip())
 
     return urls
-
+# recursively collects links from sitemap
 def collect_sitemap_links(url, visited_sitemaps=None):
     if visited_sitemaps is None:
         visited_sitemaps = set()
@@ -99,7 +103,7 @@ def collect_sitemap_links(url, visited_sitemaps=None):
     except Exception as e:
         print(f"[!] Failed to load sitemap {url}: {e}")
         return []
-
+# try comman sitemap path endings
 def find_sitemap_urls(base_url):
     # Common sitemap paths to try:
     candidates = [
@@ -124,12 +128,15 @@ def find_sitemap_urls(base_url):
     print("[!] No sitemap found at common locations, trying base URL")
     return base_url
 
+# extracts emails from text
 def extract_emails(text):
     return set(re.findall(EMAIL_REGEX, text))
 
+# filter email from top level domains
 def filter_emails_by_tld(emails):
     return {email for email in emails if any(email.lower().endswith(tld) for tld in VALID_EMAIL_TLDS)}
 
+# creates driver based on 
 def create_webdriver():
     options = Options()
     options.add_argument("--headless")
@@ -138,10 +145,11 @@ def create_webdriver():
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-dev-shm-usage")
     return webdriver.Chrome(service=Service(), options=options)
-
+# core logic for scraping 
 def scrape_page(url, delay, base_netloc, max_pages):
     pairs={}
     global visited, found_emails
+    # main logic to traverse sitemap
     with visited_lock:
         if url in visited or len(visited) >= max_pages:
             return [], []
@@ -152,12 +160,15 @@ def scrape_page(url, delay, base_netloc, max_pages):
     print(f"[*] Scraping: {url}")
     driver = create_webdriver()
     try:
+        # gets the driver necessary and gets urls
         driver.get(url)
+        # time delay to avoid rate limiting
         time.sleep(delay)
         page_source = driver.page_source
         emails = filter_emails_by_tld(extract_emails(page_source))
         soup = BeautifulSoup(page_source, "html.parser")
         new_urls = []
+        # makes a list for all <a> within the sitemap
         for a in soup.find_all("a", href=True):
             new_url = urljoin(url, a['href'])
             parsed = urlparse(new_url)
@@ -180,12 +191,21 @@ def scrape_page(url, delay, base_netloc, max_pages):
         return [], []
     finally:
         driver.quit()
-
+        
+# main driver function
 def main():
+    # handle if no input
     if len(sys.argv) != 2:
         print(f"Usage: python {sys.argv[0]} https://example.com")
         sys.exit(1)
-    base_url = sys.argv[1].rstrip("/")
+    #handle user error input
+    raw_input=sys.argv[1]
+    cleaned_url = re.sub(r'^(.*?:/)?', '', raw_input)
+    url='https://'
+    if url not in sys.argv[1]:
+        url += cleaned_url
+    
+    base_url = url.rstrip("/")
     global robot_parser
     robot_parser = setup_robot_parser(base_url)
 

@@ -11,9 +11,12 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 import sys
 
+#email regex patters
 EMAIL_REGEX = r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"
+#valid email suffixes and filters out junk
 VALID_EMAIL_TLDS = (".com", ".org", ".net", ".edu", ".gov", ".io", ".tech", ".co", ".us", ".info", ".biz", ".me", ".ai", ".dev", ".online", ".app", ".club", ".uk")
 
+#shared state
 visited_lock = Lock()
 emails_lock = Lock()
 visited = set()
@@ -21,6 +24,7 @@ found_emails = set()
 robot_parsers = {}
 USER_AGENT = "MyEmailScraperBot"
 
+#loads and parses robots.txt rules
 def setup_robot_parser(base_url):
     parsed = urlparse(base_url)
     robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
@@ -34,7 +38,7 @@ def setup_robot_parser(base_url):
     except Exception as e:
         print(f"[!] Could not load robots.txt: {e}")
         return None
-
+# checks rules for robots.txt
 def is_allowed(url):
     netloc = urlparse(url).netloc
     if netloc not in robot_parsers:
@@ -51,14 +55,16 @@ def is_allowed(url):
             robot_parsers[netloc] = dummy
     return robot_parsers[netloc].can_fetch(USER_AGENT, url)
 
-
+#checks if xml
 def is_xml(content):
     return content.strip().startswith('<?xml')
 
+#extracts urls from xml
 def extract_urls_from_xml(content):
     soup = BeautifulSoup(content, "xml")
     return [loc.text.strip() for loc in soup.find_all("loc")]
 
+#collects links from urls
 def collect_sitemap_links(url, visited_sitemaps=None):
     if visited_sitemaps is None:
         visited_sitemaps = set()
@@ -97,13 +103,15 @@ def collect_sitemap_links(url, visited_sitemaps=None):
         print(f"[!] Failed to load sitemap {url}: {e}")
         return []
 
-
+#extracts emails from text
 def extract_emails(text):
     return set(re.findall(EMAIL_REGEX, text))
 
+#filters emails by top level domain
 def filter_emails_by_tld(emails):
     return {email for email in emails if any(email.lower().endswith(tld) for tld in VALID_EMAIL_TLDS)}
 
+#creates chrome driver
 def create_webdriver():
     options = Options()
     options.add_argument("--headless")
@@ -111,6 +119,7 @@ def create_webdriver():
     options.add_argument(f"user-agent={USER_AGENT}")
     return webdriver.Chrome(service=Service(), options=options)
 
+#core logic for scraping page
 def scrape_page(url, delay, base_netloc, max_pages):
     global visited, found_emails
     pairs={}
@@ -149,12 +158,20 @@ def scrape_page(url, delay, base_netloc, max_pages):
         return [], []
     finally:
         driver.quit()
-
+        
+#core logic
 def main():
     if len(sys.argv) != 2:
         print(f"Usage: python {sys.argv[0]} https://example.com")
         sys.exit(1)
-    base_url = sys.argv[1].rstrip("/")
+    raw_input=sys.argv[1]
+    cleaned_url = re.sub(r'^(.*?:/)?', '', raw_input)
+    url='https://'
+    if url not in sys.argv[1]:
+        url += cleaned_url
+        
+    print(url)
+    base_url = url.rstrip("/")
     sitemap_url = base_url + "/sitemap.xml"
     global robot_parser
     robot_parser = setup_robot_parser(base_url)
@@ -167,6 +184,9 @@ def main():
     max_pages = 100
     delay = 2.0
     max_workers = 10
+    
+    
+    #creates threads to traverse the sitemap more efficiently
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = dict()
         while urls_to_visit and len(visited) < max_pages:
