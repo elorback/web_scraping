@@ -16,7 +16,7 @@ EMAIL_REGEX = r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"
 # valid email domain suffixes and filers out junk 
 VALID_EMAIL_TLDS = (
     ".com", ".org", ".net", ".edu", ".gov", ".io", ".tech", ".co", ".us", ".info",
-    ".biz", ".me", ".ai", ".dev", ".online", ".app", ".club", ".uk"
+    ".biz", ".me", ".ai", ".dev", ".online", ".app", ".club", ".uk",".design"
 )
 
 #shared state

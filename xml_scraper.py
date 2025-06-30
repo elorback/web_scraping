@@ -14,7 +14,7 @@ import sys
 #email regex patters
 EMAIL_REGEX = r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"
 #valid email suffixes and filters out junk
-VALID_EMAIL_TLDS = (".com", ".org", ".net", ".edu", ".gov", ".io", ".tech", ".co", ".us", ".info", ".biz", ".me", ".ai", ".dev", ".online", ".app", ".club", ".uk")
+VALID_EMAIL_TLDS = (".com", ".org", ".net", ".edu", ".gov", ".io", ".tech", ".co", ".us", ".info", ".biz", ".me", ".ai", ".dev", ".online", ".app", ".club", ".uk",'design')
 
 #shared state
 visited_lock = Lock()
