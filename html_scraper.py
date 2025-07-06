@@ -191,24 +191,22 @@ def scrape_page(url, delay, base_netloc, max_pages):
         return [], []
     finally:
         driver.quit()
-        
+def normalize_url(raw_input):
+    # Strip and clean malformed schemes like hxxp://, http:/, etc.
+    cleaned = re.sub(r'^[a-zA-Z]+[:/]+', '', raw_input.strip())
+    return f"https://{cleaned}"
 # main driver function
 def main():
-    # handle if no input
     if len(sys.argv) != 2:
-        print(f"Usage: python {sys.argv[0]} https://example.com")
+        print(f"Usage: python {sys.argv[0]} https://example.com or example.com")
         sys.exit(1)
-    #handle user error input
-    raw_input=sys.argv[1]
-    cleaned_url = re.sub(r'^(.*?:/)?', '', raw_input)
-    url='https://'
-    if url not in sys.argv[1]:
-        url += cleaned_url
-    
-    base_url = url.rstrip("/")
-    global robot_parser
-    robot_parser = setup_robot_parser(base_url)
 
+    global robot_parser
+
+    base_url = normalize_url(sys.argv[1])
+    print(f"[+] Normalized URL: {base_url}")
+
+    robot_parser = setup_robot_parser(base_url)
     sitemap_url = find_sitemap_urls(base_url)
     initial_urls = collect_sitemap_links(sitemap_url)
     if not initial_urls:
