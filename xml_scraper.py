@@ -1,6 +1,8 @@
 import re
 import time
+import gzip
 import requests
+from io import BytesIO
 from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 from bs4 import BeautifulSoup
@@ -28,18 +30,68 @@ def normalize_url(raw_input):
     cleaned = re.sub(r'^[a-zA-Z]+[:/]+', '', raw_input.strip())
     return f"https://{cleaned}"
 
-def setup_robot_parser(base_url):
+def extract_sitemaps_from_robots(base_url):
     parsed = urlparse(base_url)
     robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
-    rp = RobotFileParser()
     try:
-        rp.set_url(robots_url)
-        rp.read()
-        print(f"[*] Loaded robots.txt from {robots_url}")
-        return rp
+        res = requests.get(robots_url, timeout=10, headers={"User-Agent": USER_AGENT})
+        res.raise_for_status()
+        sitemaps = []
+        for line in res.text.splitlines():
+            if line.lower().startswith("sitemap:"):
+                sitemaps.append(line.split(":", 1)[1].strip())
+        if sitemaps:
+            print(f"[*] Found sitemaps in robots.txt: {sitemaps}")
+        return sitemaps
     except Exception as e:
-        print(f"[!] Could not load robots.txt: {e}")
+        print(f"[!] Error loading robots.txt: {e}")
+        return []
+
+def fetch_sitemap_content(url):
+    try:
+        print(f"[*] Fetching sitemap: {url}")
+        res = requests.get(url, timeout=10, headers={"User-Agent": USER_AGENT})
+        res.raise_for_status()
+        if url.endswith(".gz"):
+            with gzip.open(BytesIO(res.content), "rb") as f:
+                return f.read()
+        return res.text
+    except Exception as e:
+        print(f"[!] Failed to load sitemap {url}: {e}")
         return None
+
+def collect_sitemap_links(url, visited_sitemaps=None):
+    if visited_sitemaps is None:
+        visited_sitemaps = set()
+    if url in visited_sitemaps:
+        return []
+    visited_sitemaps.add(url)
+
+    content = fetch_sitemap_content(url)
+    if content is None:
+        return []
+
+    try:
+        soup = BeautifulSoup(content, "lxml-xml")
+
+        # Handle nested sitemap index
+        sitemap_tags = soup.find_all("sitemap")
+        if sitemap_tags:
+            all_urls = []
+            for sitemap in sitemap_tags:
+                loc = sitemap.find("loc")
+                if loc and loc.text:
+                    all_urls.extend(collect_sitemap_links(loc.text.strip(), visited_sitemaps))
+            return all_urls
+
+        # Handle actual URL list
+        url_tags = soup.find_all("url")
+        urls = [loc.find("loc").text.strip() for loc in url_tags if loc.find("loc")]
+        print(f"[*] Found {len(urls)} URLs in sitemap: {url}")
+        return urls
+    except Exception as e:
+        print(f"[!] Failed to parse sitemap: {e}")
+        return []
 
 def is_allowed(url):
     netloc = urlparse(url).netloc
@@ -56,37 +108,6 @@ def is_allowed(url):
             dummy.parse("")  # disallow everything
             robot_parsers[netloc] = dummy
     return robot_parsers[netloc].can_fetch(USER_AGENT, url)
-
-def is_xml(content):
-    return content.strip().startswith('<?xml')
-
-def collect_sitemap_links(url, visited_sitemaps=None):
-    if visited_sitemaps is None:
-        visited_sitemaps = set()
-    if url in visited_sitemaps:
-        return []
-    visited_sitemaps.add(url)
-    try:
-        res = requests.get(url, timeout=10, headers={"User-Agent": USER_AGENT})
-        res.raise_for_status()
-        content = res.text
-        soup = BeautifulSoup(content, "xml")
-
-        sitemap_tags = soup.find_all("sitemap")
-        if sitemap_tags:
-            all_urls = []
-            for sitemap in sitemap_tags:
-                loc = sitemap.find("loc")
-                if loc and loc.text:
-                    all_urls.extend(collect_sitemap_links(loc.text.strip(), visited_sitemaps))
-            return all_urls
-
-        url_tags = soup.find_all("url")
-        return [loc.text.strip() for loc in url_tags if loc and loc.text]
-
-    except Exception as e:
-        print(f"[!] Failed to load sitemap {url}: {e}")
-        return []
 
 def extract_emails(text):
     return set(re.findall(EMAIL_REGEX, text))
@@ -150,11 +171,16 @@ def main():
     base_url = normalize_url(sys.argv[1])
     print(f"[+] Normalized URL: {base_url}")
 
-    sitemap_url = base_url.rstrip("/") + "/sitemap.xml"
-    initial_urls = collect_sitemap_links(sitemap_url)
+    sitemaps = extract_sitemaps_from_robots(base_url)
+    if not sitemaps:
+        sitemaps = [base_url.rstrip("/") + "/sitemap.xml"]
+
+    initial_urls = []
+    for sitemap in sitemaps:
+        initial_urls.extend(collect_sitemap_links(sitemap))
 
     if not initial_urls:
-        print("[!] No URLs found in sitemap.xml, exiting.")
+        print("[!] No URLs found in sitemap, exiting.")
         sys.exit(1)
 
     base_netloc = urlparse(base_url).netloc
